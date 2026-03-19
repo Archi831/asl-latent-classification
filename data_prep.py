@@ -1,5 +1,9 @@
-import tensorflow as tf
 from pathlib import Path
+import random
+import numpy as np
+import torch
+from torch.utils.data import DataLoader, random_split
+from torchvision import datasets, transforms
 import matplotlib.pyplot as plt
 
 
@@ -7,97 +11,108 @@ DATA_DIR = r"D:\ns\asl_alphabet_train"
 IMG_SIZE = (64, 64)
 BATCH_SIZE = 64
 SEED = 67
-AUTOTUNE = tf.data.AUTOTUNE # automatically choose the best number of parallel calls/prefetch size
+
+def set_seed(seed=67):
+    random.seed(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed_all(seed)
+
+
+def get_transforms(img_size=(64, 64)):
+    return transforms.Compose([
+        transforms.Grayscale(num_output_channels=1),   # force grayscale
+        transforms.Resize(img_size),                   # resize to 64x64
+        transforms.ToTensor(),                         # converts to [0, 1]
+    ])
+
 
 def load_preprocessed_datasets(data_dir, img_size=(64, 64), batch_size=32, seed=67):
-
+    set_seed(seed)
     data_dir = Path(data_dir)
 
-    train_raw = tf.keras.utils.image_dataset_from_directory(
-        data_dir,  # folder that contains class subfolders
-        labels="inferred", # labels are taken automatically from subfolder names
-        label_mode="int", # labels will be integers (e.g. 0, 1, 2, ...)
-        color_mode="grayscale",
-        image_size=img_size,
-        batch_size=None,
-        shuffle=False,
-        seed=seed,
-        validation_split=0.30,
-        subset="training",
-    )
+    transform = get_transforms(img_size)
 
-    temp_raw = tf.keras.utils.image_dataset_from_directory(
-        data_dir,
-        labels="inferred",
-        label_mode="int",
-        color_mode="grayscale",
-        image_size=img_size,
-        batch_size=None,
-        shuffle=False,
-        seed=seed,
-        validation_split=0.30,
-        subset="validation",
-    )
+    full_dataset = datasets.ImageFolder(root=data_dir, transform=transform)
 
-    class_names = train_raw.class_names
+    class_names = full_dataset.classes
     num_classes = len(class_names)
+
     print(f"\nFound {num_classes} classes:")
     print(class_names)
+
     if num_classes != 29:
         print(f"WARNING: Expected 29 classes, but found {num_classes}.")
 
-    temp_count = tf.data.experimental.cardinality(temp_raw).numpy()
-    val_count = temp_count // 3
+    total_size = len(full_dataset)
+    train_size = int(0.70 * total_size)
+    val_size = int(0.10 * total_size)
+    test_size = total_size - train_size - val_size
 
-    val_raw = temp_raw.take(val_count)
-    test_raw = temp_raw.skip(val_count)
+    generator = torch.Generator().manual_seed(seed)
 
-    def normalize(image, label):
-        image = tf.cast(image, tf.float32) / 255.0 # converts pixel values to decimal numbers
-        # neural networks usually train better when inputs are scaled to small values
-        return image, label
+    train_dataset, val_dataset, test_dataset = random_split(
+        full_dataset,
+        [train_size, val_size, test_size],
+        generator=generator
+    )
 
-    train_ds = train_raw.map(normalize, num_parallel_calls=AUTOTUNE)
-    val_ds = val_raw.map(normalize, num_parallel_calls=AUTOTUNE)
-    test_ds = test_raw.map(normalize, num_parallel_calls=AUTOTUNE)
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=0,
+        pin_memory=torch.cuda.is_available()
+    )
 
-    train_ds = train_ds.shuffle(10000, seed=seed, reshuffle_each_iteration=True)
-    train_ds = train_ds.batch(batch_size).prefetch(AUTOTUNE)
-    val_ds = val_ds.batch(batch_size).prefetch(AUTOTUNE)
-    test_ds = test_ds.batch(batch_size).prefetch(AUTOTUNE)
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=torch.cuda.is_available()
+    )
 
-    return train_ds, val_ds, test_ds, class_names
+    test_loader = DataLoader(
+        test_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=0,
+        pin_memory=torch.cuda.is_available()
+    )
 
-def count_samples(dataset):
-    total = 0
-    for images, labels in dataset:
-        total += images.shape[0]
-    return total
+    return train_loader, val_loader, test_loader, class_names
 
-def show_sample_images(dataset, class_names, num_images=9):
-    images, labels = next(iter(dataset))
+
+def count_samples(dataloader):
+    return len(dataloader.dataset)
+
+
+def show_sample_images(dataloader, class_names, num_images=9):
+    images, labels = next(iter(dataloader))
 
     plt.figure(figsize=(8, 8))
     for i in range(min(num_images, len(images))):
         plt.subplot(3, 3, i + 1)
-        plt.imshow(tf.squeeze(images[i]), cmap="gray")
-        plt.title(class_names[int(labels[i])])
+        plt.imshow(images[i].squeeze(0), cmap="gray")
+        plt.title(class_names[labels[i].item()])
         plt.axis("off")
     plt.tight_layout()
     plt.show()
 
-if __name__ == "__main__":
 
-    train_ds, val_ds, test_ds, class_names = load_preprocessed_datasets(
+if __name__ == "__main__":
+    train_loader, val_loader, test_loader, class_names = load_preprocessed_datasets(
         DATA_DIR,
         img_size=IMG_SIZE,
         batch_size=BATCH_SIZE,
         seed=SEED
     )
 
-    train_count = count_samples(train_ds)
-    val_count = count_samples(val_ds)
-    test_count = count_samples(test_ds)
+    train_count = count_samples(train_loader)
+    val_count = count_samples(val_loader)
+    test_count = count_samples(test_loader)
     total_count = train_count + val_count + test_count
 
     print("\nDataset sizes:")
@@ -106,11 +121,11 @@ if __name__ == "__main__":
     print(f"Test: {test_count}")
     print(f"Total: {total_count}")
 
-    images, labels = next(iter(train_ds))
+    images, labels = next(iter(train_loader))
     print("\nOne training batch:")
-    print("Images shape:", images.shape)
+    print("Images shape:", images.shape)   # expected: [B, 1, 64, 64]
     print("Labels shape:", labels.shape)
-    print("Min pixel value:", tf.reduce_min(images).numpy())
-    print("Max pixel value:", tf.reduce_max(images).numpy())
+    print("Min pixel value:", images.min().item())
+    print("Max pixel value:", images.max().item())
 
-    show_sample_images(train_ds, class_names)
+    show_sample_images(train_loader, class_names)

@@ -1,73 +1,115 @@
-from tensorflow.keras import layers, Model
-
-def build_encoder(input_shape=(64, 64, 1), latent_dim=64): #the encoder will reduce the whole image into a vector of length 64
-    encoder_input = layers.Input(shape=input_shape, name="encoder_input")
-
-    x = layers.Conv2D(32, (3, 3), strides=2, padding="same", activation="relu")(encoder_input)
-    x = layers.BatchNormalization()(x)
-
-    x = layers.Conv2D(64, (3, 3), strides=2, padding="same", activation="relu")(x)
-    x = layers.BatchNormalization()(x)
-
-    x = layers.Conv2D(128, (3, 3), strides=2, padding="same", activation="relu")(x)
-    x = layers.BatchNormalization()(x)
-
-    x = layers.Conv2D(256, (3, 3), strides=2, padding="same", activation="relu")(x)
-    x = layers.BatchNormalization()(x)
-
-    x = layers.Flatten()(x) # turns that into one long vector, because Dense layers need a 1D vector as input
-    x = layers.Dense(128, activation="relu")(x) # learn a smaller, more useful representation of the flattened features.
-
-    latent_vector = layers.Dense(latent_dim, name="latent_vector")(x)
-
-    encoder = Model(encoder_input, latent_vector, name="encoder")
-    return encoder
+import torch
+import torch.nn as nn
 
 
-def build_decoder(latent_dim=64):
-    decoder_input = layers.Input(shape=(latent_dim,), name="decoder_input")
+class Encoder(nn.Module):
+    def __init__(self, latent_dim=64):
+        super().__init__()
 
-    x = layers.Dense(4 * 4 * 256, activation="relu")(decoder_input)
-    x = layers.Reshape((4, 4, 256))(x)
+        self.conv_layers = nn.Sequential(
+            nn.Conv2d(1, 32, kernel_size=3, stride=2, padding=1),   # 64 -> 32
+            nn.ReLU(),
+            nn.BatchNorm2d(32),
 
-    x = layers.Conv2DTranspose(128, (3, 3), strides=2, padding="same", activation="relu")(x)     # 4 -> 8
-    x = layers.BatchNormalization()(x)
+            nn.Conv2d(32, 64, kernel_size=3, stride=2, padding=1),  # 32 -> 16
+            nn.ReLU(),
+            nn.BatchNorm2d(64),
 
-    x = layers.Conv2DTranspose(64, (3, 3), strides=2, padding="same", activation="relu")(x)      # 8 -> 16
-    x = layers.BatchNormalization()(x)
+            nn.Conv2d(64, 128, kernel_size=3, stride=2, padding=1), # 16 -> 8
+            nn.ReLU(),
+            nn.BatchNorm2d(128),
 
-    x = layers.Conv2DTranspose(32, (3, 3), strides=2, padding="same", activation="relu")(x)      # 16 -> 32
-    x = layers.BatchNormalization()(x)
+            nn.Conv2d(128, 256, kernel_size=3, stride=2, padding=1), # 8 -> 4
+            nn.ReLU(),
+            nn.BatchNorm2d(256)
+        )
 
-    decoder_output = layers.Conv2DTranspose(
-        1, (3, 3), strides=2, padding="same", activation="sigmoid", name="decoder_output"
-    )(x)                                                                                           # 32 -> 64
+        self.flatten = nn.Flatten()
+        self.fc1 = nn.Linear(4 * 4 * 256, 128)
+        self.fc2 = nn.Linear(128, latent_dim)
 
-    decoder = Model(decoder_input, decoder_output, name="decoder")
-    return decoder
+    def forward(self, x):
+        x = self.conv_layers(x)
+        x = self.flatten(x)
+        x = torch.relu(self.fc1(x))
+        latent_vector = self.fc2(x)
+        return latent_vector
 
 
-def build_autoencoder(input_shape=(64, 64, 1), latent_dim=64):
-    encoder = build_encoder(input_shape=input_shape, latent_dim=latent_dim)
-    decoder = build_decoder(latent_dim=latent_dim)
+class Decoder(nn.Module):
+    def __init__(self, latent_dim=64):
+        super().__init__()
 
-    autoencoder_input = layers.Input(shape=input_shape, name="autoencoder_input")
-    latent = encoder(autoencoder_input)
-    reconstructed = decoder(latent)
+        self.fc = nn.Linear(latent_dim, 4 * 4 * 256)
 
-    autoencoder = Model(autoencoder_input, reconstructed, name="autoencoder")
+        self.deconv_layers = nn.Sequential(
+            nn.ConvTranspose2d(256, 128, kernel_size=3, stride=2, padding=1, output_padding=1),  # 4 -> 8
+            nn.ReLU(),
+            nn.BatchNorm2d(128),
+
+            nn.ConvTranspose2d(128, 64, kernel_size=3, stride=2, padding=1, output_padding=1),   # 8 -> 16
+            nn.ReLU(),
+            nn.BatchNorm2d(64),
+
+            nn.ConvTranspose2d(64, 32, kernel_size=3, stride=2, padding=1, output_padding=1),    # 16 -> 32
+            nn.ReLU(),
+            nn.BatchNorm2d(32),
+
+            nn.ConvTranspose2d(32, 1, kernel_size=3, stride=2, padding=1, output_padding=1),      # 32 -> 64
+            nn.Sigmoid()
+        )
+
+    def forward(self, x):
+        x = torch.relu(self.fc(x))
+        x = x.view(-1, 256, 4, 4)
+        x = self.deconv_layers(x)
+        return x
+
+
+class Autoencoder(nn.Module):
+    def __init__(self, latent_dim=64):
+        super().__init__()
+        self.encoder = Encoder(latent_dim=latent_dim)
+        self.decoder = Decoder(latent_dim=latent_dim)
+
+    def forward(self, x):
+        latent = self.encoder(x)
+        reconstructed = self.decoder(latent)
+        return reconstructed
+
+
+def build_autoencoder(latent_dim=64):
+    encoder = Encoder(latent_dim=latent_dim)
+    decoder = Decoder(latent_dim=latent_dim)
+    autoencoder = Autoencoder(latent_dim=latent_dim)
     return encoder, decoder, autoencoder
 
 
 if __name__ == "__main__":
-    encoder, decoder, autoencoder = build_autoencoder()
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    print("\nENCODER:")
-    encoder.summary()
+    encoder, decoder, autoencoder = build_autoencoder(latent_dim=64)
+    encoder = encoder.to(device)
+    decoder = decoder.to(device)
+    autoencoder = autoencoder.to(device)
 
-    print("\nDECODER:")
-    decoder.summary()
+    x = torch.randn(8, 1, 64, 64).to(device)
 
-    print("\nAUTOENCODER:")
-    autoencoder.summary()
+    latent = encoder(x)
+    reconstructed = decoder(latent)
+    output = autoencoder(x)
 
+    print("\nENCODER OUTPUT SHAPE:")
+    print(latent.shape)          # expected: [8, 64]
+
+    print("\nDECODER OUTPUT SHAPE:")
+    print(reconstructed.shape)   # expected: [8, 1, 64, 64]
+
+    print("\nAUTOENCODER OUTPUT SHAPE:")
+    print(output.shape)          # expected: [8, 1, 64, 64])
+
+    total_params = sum(p.numel() for p in autoencoder.parameters())
+    trainable_params = sum(p.numel() for p in autoencoder.parameters() if p.requires_grad)
+
+    print(f"\nTotal parameters: {total_params:,}")
+    print(f"Trainable parameters: {trainable_params:,}")

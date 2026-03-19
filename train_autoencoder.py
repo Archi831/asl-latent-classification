@@ -12,10 +12,10 @@ from autoencoder import build_autoencoder
 
 DATA_DIR = r"D:\ns\asl_alphabet_train"
 IMG_SIZE = (64, 64)
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 SEED = 67
-LATENT_DIM = 64
-EPOCHS = 20
+LATENT_DIM = 128
+EPOCHS = 50
 LEARNING_RATE = 1e-3
 
 MODELS_DIR = Path("models")
@@ -38,28 +38,52 @@ def plot_history(history, save_path="outputs/plots/ae_loss_curve.png"):
     plt.show()
 
 
-def show_reconstructions(model, dataloader, device,
+def show_reconstructions(model, dataloader, device, class_names,
                          save_path="outputs/plots/ae_reconstructions.png",
-                         num_images=6):
+                         num_images=6,
+                         skip_nothing=True):
     model.eval()
 
-    images, _ = next(iter(dataloader))
-    images = images.to(device)
+    nothing_idx = None
+    if skip_nothing and "nothing" in [c.lower() for c in class_names]:
+        nothing_idx = [c.lower() for c in class_names].index("nothing")
+
+    selected_images = []
+    selected_labels = []
 
     with torch.no_grad():
-        reconstructed = model(images[:num_images])
+        for images, labels in dataloader:
+            for img, lbl in zip(images, labels):
+                if nothing_idx is not None and lbl.item() == nothing_idx:
+                    continue
 
-    images = images[:num_images].cpu()
+                selected_images.append(img)
+                selected_labels.append(lbl.item())
+
+                if len(selected_images) == num_images:
+                    break
+
+            if len(selected_images) == num_images:
+                break
+
+        if len(selected_images) == 0:
+            print("No suitable images found for reconstruction preview.")
+            return
+
+        images = torch.stack(selected_images).to(device)
+        reconstructed = model(images)
+
+    images = images.cpu()
     reconstructed = reconstructed.cpu()
 
     plt.figure(figsize=(12, 4))
-    for i in range(num_images):
-        plt.subplot(2, num_images, i + 1)
+    for i in range(len(images)):
+        plt.subplot(2, len(images), i + 1)
         plt.imshow(images[i].squeeze(0), cmap="gray")
-        plt.title("Original")
+        plt.title(f"Original\n{class_names[selected_labels[i]]}")
         plt.axis("off")
 
-        plt.subplot(2, num_images, i + 1 + num_images)
+        plt.subplot(2, len(images), i + 1 + len(images))
         plt.imshow(reconstructed[i].squeeze(0), cmap="gray")
         plt.title("Reconstructed")
         plt.axis("off")
@@ -76,7 +100,7 @@ def train_one_epoch(model, dataloader, criterion, optimizer, device):
     loop = tqdm(dataloader, desc="Training", leave=False)
 
     for images, _ in loop:
-        images = images.to(device)
+        images = images.to(device, non_blocking=True)
 
         optimizer.zero_grad()
         outputs = model(images)
@@ -99,7 +123,7 @@ def validate_one_epoch(model, dataloader, criterion, device):
         loop = tqdm(dataloader, desc="Validation", leave=False)
 
         for images, _ in loop:
-            images = images.to(device)
+            images = images.to(device, non_blocking=True)
             outputs = model(images)
             loss = criterion(outputs, images)
 
@@ -116,7 +140,7 @@ def evaluate(model, dataloader, criterion, device):
 
     with torch.no_grad():
         for images, _ in dataloader:
-            images = images.to(device)
+            images = images.to(device, non_blocking=True)
             outputs = model(images)
             loss = criterion(outputs, images)
             running_loss += loss.item() * images.size(0)
@@ -125,8 +149,11 @@ def evaluate(model, dataloader, criterion, device):
 
 
 if __name__ == "__main__":
+
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print("Using device:", device)
+    if device.type == "cuda":
+        print("GPU:", torch.cuda.get_device_name(0))
 
     train_loader, val_loader, test_loader, class_names = load_preprocessed_datasets(
         DATA_DIR,
@@ -205,6 +232,8 @@ if __name__ == "__main__":
         autoencoder,
         test_loader,
         device,
+        class_names=class_names,
         save_path=str(PLOTS_DIR / "ae_reconstructions.png"),
-        num_images=6
+        num_images=6,
+        skip_nothing=True
     )

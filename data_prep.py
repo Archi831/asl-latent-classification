@@ -9,7 +9,7 @@ import matplotlib.pyplot as plt
 
 DATA_DIR = r"D:\ns\asl_alphabet_train"
 IMG_SIZE = (64, 64)
-BATCH_SIZE = 64
+BATCH_SIZE = 128
 SEED = 67
 
 def set_seed(seed=67):

@@ -2,13 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-# Basic building block with two convolutional layers, batch norm, and ReLU
+
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
         self.block = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False), # look for important visual patterns
-            nn.BatchNorm2d(out_channels), # organize the detected signals so they are easier to learn from
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
+            nn.BatchNorm2d(out_channels),
             nn.ReLU(inplace=True),
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(out_channels),
@@ -18,129 +18,149 @@ class ConvBlock(nn.Module):
     def forward(self, x):
         return self.block(x)
 
-class UpBlock(nn.Module):
-    def __init__(self, in_channels, skip_channels, out_channels):
-        super().__init__()
-        self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False) # makes the feature map larger
-        self.conv = ConvBlock(in_channels + skip_channels, out_channels)
 
-    def forward(self, x, skip=None):
-        x = self.up(x)
-        if skip is not None:
-            x = torch.cat([x, skip], dim=1)
-        return self.conv(x)
+class UpBlock(nn.Module):
+    def __init__(self, in_channels, out_channels):
+        super().__init__()
+        self.up   = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
+        self.conv = ConvBlock(in_channels, out_channels)
+
+    def forward(self, x):
+        return self.conv(self.up(x))
+
 
 class Encoder(nn.Module):
-
     def __init__(self, latent_dim: int = 128):
         super().__init__()
 
-        self.block1 = ConvBlock(1,   32)   # → (B, 32,  64, 64)
-        self.pool1  = nn.MaxPool2d(2)      # → (B, 32,  32, 32) # makes the image representation smaller
+        self.block1 = ConvBlock(1,   32)
+        self.pool1  = nn.MaxPool2d(2)
 
-        self.block2 = ConvBlock(32,  64)   # → (B, 64,  32, 32)
-        self.pool2  = nn.MaxPool2d(2)      # → (B, 64,  16, 16)
+        self.block2 = ConvBlock(32,  64)
+        self.pool2  = nn.MaxPool2d(2)
 
-        self.block3 = ConvBlock(64,  128)  # → (B, 128, 16, 16)
-        self.pool3  = nn.MaxPool2d(2)      # → (B, 128,  8,  8)
+        self.block3 = ConvBlock(64,  128)
+        self.pool3  = nn.MaxPool2d(2)
 
-        self.block4 = ConvBlock(128, 256)  # → (B, 256,  8,  8)
-        self.pool4  = nn.MaxPool2d(2)      # → (B, 256,  4,  4)
+        self.block4 = ConvBlock(128, 256)
+        self.pool4  = nn.MaxPool2d(2)
 
-        self.flatten = nn.Flatten() # converts the 3D feature map into one long vector for each image
-        self.fc1 = nn.Linear(4 * 4 * 256, 512) # compresses the extracted features into a smaller representation
-        self.drop = nn.Dropout(0.3) # randomly turns off 30% of neurons during training
-        self.fc2 = nn.Linear(512, latent_dim)
+        self.flatten = nn.Flatten()
+        self.fc1     = nn.Linear(4 * 4 * 256, 512)
+        self.drop    = nn.Dropout(0.3)
+        self.fc2     = nn.Linear(512, latent_dim)
+
+        # BatchNorm on z keeps scale consistent across training and inference
+        self.bn_z = nn.BatchNorm1d(latent_dim)
 
     def forward(self, x):
-        s1 = self.block1(x)          # skip 1  (B, 32,  64, 64)
-        x  = self.pool1(s1)
-
-        s2 = self.block2(x)          # skip 2  (B, 64,  32, 32)
-        x  = self.pool2(s2)
-
-        s3 = self.block3(x)          # skip 3  (B, 128, 16, 16)
-        x  = self.pool3(s3)
-
-        s4 = self.block4(x)          # skip 4  (B, 256,  8,  8)
-        x  = self.pool4(s4)
+        x = self.pool1(self.block1(x))
+        x = self.pool2(self.block2(x))
+        x = self.pool3(self.block3(x))
+        x = self.pool4(self.block4(x))
 
         x = self.flatten(x)
         x = F.relu(self.fc1(x))
         x = self.drop(x)
         z = self.fc2(x)
+        z = self.bn_z(z)
 
-        self._skips = (s1, s2, s3, s4)
+        # L2-normalise: projects every embedding onto the unit hypersphere.
+        # Stops a few dimensions from dominating and makes class clusters
+        # tighter — exactly what the downstream MLP benefits from.
+        z = F.normalize(z, p=2, dim=1)
         return z
 
-class Decoder(nn.Module):
 
+class Decoder(nn.Module):
     def __init__(self, latent_dim: int = 128):
         super().__init__()
 
         self.fc1 = nn.Linear(latent_dim, 512)
         self.fc2 = nn.Linear(512, 4 * 4 * 256)
 
-        # skip_channels=256 for up1, 128 for up2, 64 for up3, 32 for up4
-        self.up1 = UpBlock(256, 256, 128)   # 4  → 8,   concat s4
-        self.up2 = UpBlock(128, 128, 64)    # 8  → 16,  concat s3
-        self.up3 = UpBlock(64,  64,  32)    # 16 → 32,  concat s2
-        self.up4 = UpBlock(32,  32,  16)    # 32 → 64,  concat s1
+        self.up1 = UpBlock(256, 128)
+        self.up2 = UpBlock(128, 64)
+        self.up3 = UpBlock(64,  32)
+        self.up4 = UpBlock(32,  16)
 
         self.head = nn.Sequential(
             nn.Conv2d(16, 1, kernel_size=1),
             nn.Sigmoid(),
         )
 
-    def forward(self, z, skips=None):
+    def forward(self, z):
         x = F.relu(self.fc1(z))
         x = F.relu(self.fc2(x))
         x = x.view(-1, 256, 4, 4)
-
-        s1, s2, s3, s4 = skips if skips is not None else (None, None, None, None)
-
-        x = self.up1(x, s4)
-        x = self.up2(x, s3)
-        x = self.up3(x, s2)
-        x = self.up4(x, s1)
-
+        x = self.up1(x)
+        x = self.up2(x)
+        x = self.up3(x)
+        x = self.up4(x)
         return self.head(x)
 
-class Autoencoder(nn.Module):
-    def __init__(self, latent_dim: int = 128):
+
+class ClassifierHead(nn.Module):
+    """
+    Lightweight head attached to z *during autoencoder training only*.
+    Forces the encoder to produce class-discriminative embeddings.
+    Discarded after training — your downstream MLP replaces it entirely.
+    """
+    def __init__(self, latent_dim: int, num_classes: int, hidden: int = 256):
         super().__init__()
-        self.encoder = Encoder(latent_dim=latent_dim)
-        self.decoder = Decoder(latent_dim=latent_dim)
+        self.net = nn.Sequential(
+            nn.Linear(latent_dim, hidden),
+            nn.BatchNorm1d(hidden),
+            nn.ReLU(inplace=True),
+            nn.Dropout(0.3),
+            nn.Linear(hidden, num_classes),
+        )
+
+    def forward(self, z):
+        return self.net(z)
+
+
+class Autoencoder(nn.Module):
+    def __init__(self, latent_dim: int = 128, num_classes: int = 29):
+        super().__init__()
+        self.encoder    = Encoder(latent_dim=latent_dim)
+        self.decoder    = Decoder(latent_dim=latent_dim)
+        # Included in the model so the optimizer trains it automatically
+        self.classifier = ClassifierHead(latent_dim, num_classes)
 
     def forward(self, x):
         z      = self.encoder(x)
-        x_hat  = self.decoder(z, skips=self.encoder._skips)
-        return x_hat
+        x_hat  = self.decoder(z)
+        logits = self.classifier(z)
+        return x_hat, logits       # training loop uses both
 
     def encode(self, x):
-        z = self.encoder(x)
-        return z
+        return self.encoder(x)     # save_latents.py uses this — no change needed
 
-def build_autoencoder(latent_dim: int = 128):
+
+def build_autoencoder(latent_dim: int = 128, num_classes: int = 29):
     encoder     = Encoder(latent_dim=latent_dim)
     decoder     = Decoder(latent_dim=latent_dim)
-    autoencoder = Autoencoder(latent_dim=latent_dim)
+    autoencoder = Autoencoder(latent_dim=latent_dim, num_classes=num_classes)
     return encoder, decoder, autoencoder
+
 
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    encoder, decoder, autoencoder = build_autoencoder(latent_dim=128)
+    encoder, decoder, autoencoder = build_autoencoder(latent_dim=128, num_classes=29)
     autoencoder = autoencoder.to(device)
 
     x = torch.randn(8, 1, 64, 64).to(device)
-    z     = autoencoder.encoder(x)
-    x_hat = autoencoder(x)
+    x_hat, logits = autoencoder(x)
+    z = autoencoder.encode(x)
 
-    print("Latent shape      :", z.shape)     # (8, 64)
-    print("Reconstruction    :", x_hat.shape) # (8, 1, 64, 64)
+    print("Latent shape   :", z.shape)        # (8, 128)
+    print("L2 norms (≈1)  :", z.norm(dim=1))  # should all be ~1.0
+    print("Recon shape    :", x_hat.shape)    # (8, 1, 64, 64)
+    print("Logits shape   :", logits.shape)   # (8, 29)
 
     total     = sum(p.numel() for p in autoencoder.parameters())
     trainable = sum(p.numel() for p in autoencoder.parameters() if p.requires_grad)
-    print(f"Total parameters  : {total:,}")
-    print(f"Trainable params  : {trainable:,}")
+    print(f"Total params   : {total:,}")
+    print(f"Trainable      : {trainable:,}")

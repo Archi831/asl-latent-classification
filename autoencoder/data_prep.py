@@ -23,74 +23,78 @@ def set_seed(seed=SEED):
         torch.cuda.manual_seed_all(seed)
 
 # Define data preprocessing pipeline (transformations)
-def get_transforms(img_size=(64, 64)):
-    return transforms.Compose([
-        transforms.Grayscale(num_output_channels=1),   # Convert RGB to grayscale (ASL signs don't need color)
-        transforms.Resize(img_size),                   # Resize all images to uniform dimensions
-        transforms.ToTensor(),                         # Convert image to PyTorch tensor and scale to [0, 1]
-    ])
+def get_transforms(img_size=(64, 64), augment=False):
+    base = [
+        transforms.Grayscale(num_output_channels=1),
+        transforms.Resize(img_size),
+    ]
+    if augment:
+        base.extend([
+            transforms.RandomAffine(degrees=8, translate=(0.08, 0.08), scale=(0.92, 1.08), shear=5),
+            transforms.ColorJitter(brightness=0.15, contrast=0.15),
+        ])
+    base.append(transforms.ToTensor())
+    if augment:
+        base.append(transforms.RandomErasing(p=0.1, scale=(0.02, 0.08), value=0))
+    return transforms.Compose(base)
+
 
 # Load dataset, split into train/val/test sets, and create data loaders
-def load_preprocessed_datasets(data_dir, img_size=(64, 64), batch_size=128, seed=67):
+def load_preprocessed_datasets(
+    data_dir,
+    img_size=(64, 64),
+    batch_size=128,
+    seed=67,
+    augment=False,
+    num_workers=0,
+    expected_num_classes=None,
+):
     set_seed(seed)
-
     data_dir = Path(data_dir)
 
-    transform = get_transforms(img_size)
-
-    # This automatically assigns labels based on subfolder names
-    full_dataset = datasets.ImageFolder(root=data_dir, transform=transform)
-
-    # Extract class names (e.g., 'A', 'B', 'C', ... 'space', 'del')
-    class_names = full_dataset.classes
-    num_classes = len(class_names)
+    # Determine indices once from an untransformed dataset, then attach per-split transforms
+    base_dataset = datasets.ImageFolder(root=data_dir, transform=None)
+    class_names  = base_dataset.classes
+    num_classes  = len(class_names)
 
     print(f"\nFound {num_classes} classes:")
     print(class_names)
 
-    if num_classes != 29:
-        print(f"WARNING: Expected 29 classes, but found {num_classes}.")
+    if expected_num_classes is not None and num_classes != expected_num_classes:
+        print(f"WARNING: Expected {expected_num_classes} classes, but found {num_classes}.")
 
-    # Calculate dataset split sizes: 70% training, 10% validation, 20% test
-    total_size = len(full_dataset)
+    total_size = len(base_dataset)
     train_size = int(0.70 * total_size)
-    val_size = int(0.10 * total_size)
-    test_size = total_size - train_size - val_size
+    val_size   = int(0.10 * total_size)
+    test_size  = total_size - train_size - val_size
 
-    generator = torch.Generator().manual_seed(seed)
+    generator  = torch.Generator().manual_seed(seed)
+    all_indices = torch.randperm(total_size, generator=generator).tolist()
+    train_idx   = all_indices[:train_size]
+    val_idx     = all_indices[train_size:train_size + val_size]
+    test_idx    = all_indices[train_size + val_size:]
 
-    # Randomly split the dataset into training, validation, and test sets
-    train_dataset, val_dataset, test_dataset = random_split(
-        full_dataset,
-        [train_size, val_size, test_size],
-        generator=generator
-    )
+    train_tf = get_transforms(img_size, augment=augment)
+    eval_tf  = get_transforms(img_size, augment=False)
 
-    # Create DataLoader for training set
+    full_train = datasets.ImageFolder(root=data_dir, transform=train_tf)
+    full_eval  = datasets.ImageFolder(root=data_dir, transform=eval_tf)
+
+    train_dataset = torch.utils.data.Subset(full_train, train_idx)
+    val_dataset   = torch.utils.data.Subset(full_eval,  val_idx)
+    test_dataset  = torch.utils.data.Subset(full_eval,  test_idx)
+
     train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=0,
-        pin_memory=torch.cuda.is_available()
+        train_dataset, batch_size=batch_size, shuffle=True,
+        num_workers=num_workers, pin_memory=torch.cuda.is_available()
     )
-
-    # Create DataLoader for validation set
     val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=0,
-        pin_memory=torch.cuda.is_available()
+        val_dataset, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=torch.cuda.is_available()
     )
-
-    # Create DataLoader for testing set
     test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=0,
-        pin_memory=torch.cuda.is_available()
+        test_dataset, batch_size=batch_size, shuffle=False,
+        num_workers=num_workers, pin_memory=torch.cuda.is_available()
     )
 
     return train_loader, val_loader, test_loader, class_names

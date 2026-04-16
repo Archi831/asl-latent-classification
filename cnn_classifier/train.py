@@ -15,13 +15,13 @@ from data_prep import load_preprocessed_datasets, set_seed  # type: ignore[repor
 from model import build_classifier
 
 # --- Hyperparameters ---
-DATA_DIR      = str(Path(__file__).resolve().parent.parent / "data" / "asl_alphabet_train" / "asl_alphabet_train")
+DATA_DIR      = str(Path(__file__).resolve().parent.parent / "data" / "asl-alphabet-numbers" / "asl-numbers-alphabet-dataset")
 BATCH_SIZE    = 128
 SEED          = 67
 EPOCHS        = 50
 LEARNING_RATE = 1e-3
 DROPOUT       = 0.5
-NUM_CLASSES   = 29
+NUM_CLASSES   = 39
 EARLY_STOP_PATIENCE = 7
 WEIGHT_DECAY  = 0.0
 LABEL_SMOOTHING = 0.0
@@ -29,10 +29,11 @@ OPTIMIZER_NAME = "adam"
 SCHEDULER_NAME = "plateau"
 MOMENTUM = 0.9
 NUM_WORKERS = 0
+HEAD = "standard"
 
-MODELS_DIR = Path(__file__).parent / "models"
-PLOTS_DIR  = Path(__file__).parent / "outputs" / "plots"
-RESULTS_CSV = Path(__file__).parent / "outputs" / "ablation_results.csv"
+MODELS_DIR  = Path(__file__).parent / "models"
+PLOTS_DIR   = Path(__file__).parent / "outputs" / "plots"
+RESULTS_CSV = Path(__file__).parent / "outputs" / "ablation_results_asl39.csv"
 
 def train_one_epoch(model, loader, criterion, optimizer, device):
     model.train()
@@ -113,6 +114,7 @@ def append_results_csv(csv_path, row):
     fieldnames = [
         "timestamp",
         "run_name",
+        "head",
         "optimizer",
         "scheduler",
         "lr",
@@ -153,6 +155,7 @@ def main(
     data_dir=DATA_DIR,
     run_name=None,
     log_csv=True,
+    head=HEAD,
 ):
     set_seed(SEED)
     MODELS_DIR.mkdir(parents=True, exist_ok=True)
@@ -181,7 +184,7 @@ def main(
     num_classes = len(class_names)
     print(f"Detected classes: {num_classes}")
 
-    model = build_classifier(num_classes=num_classes, dropout=dropout).to(device)
+    model = build_classifier(num_classes=num_classes, dropout=dropout, head=head).to(device)
     criterion = nn.CrossEntropyLoss(label_smoothing=label_smoothing)
     optimizer = build_optimizer(model, optimizer_name, lr, weight_decay, momentum)
     scheduler = build_scheduler(optimizer, scheduler_name, epochs)
@@ -230,6 +233,7 @@ def main(
             {
                 "timestamp": datetime.now().isoformat(timespec="seconds"),
                 "run_name": run_name,
+                "head": head,
                 "optimizer": optimizer_name,
                 "scheduler": scheduler_name,
                 "lr": lr,
@@ -269,6 +273,7 @@ if __name__ == "__main__":
     parser.add_argument("--augment", action="store_true", help="Enable train-time data augmentation")
     parser.add_argument("--run_name", type=str, default=None)
     parser.add_argument("--no_csv", action="store_true", help="Disable CSV logging")
+    parser.add_argument("--head", type=str, choices=["shallow", "standard", "deep"], default=HEAD)
     args = parser.parse_args()
     main(
         lr=args.lr,
@@ -285,4 +290,5 @@ if __name__ == "__main__":
         data_dir=args.data_dir,
         run_name=args.run_name,
         log_csv=not args.no_csv,
+        head=args.head,
     )

@@ -1,11 +1,10 @@
 from pathlib import Path
-import copy
-
+import copy # For making a deep copy of model weights
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 import matplotlib.pyplot as plt
 from tqdm import tqdm
+from torchmetrics import StructuralSimilarityIndexMeasure
 
 from data_prep import load_preprocessed_datasets
 from autoencoder import build_autoencoder
@@ -27,43 +26,19 @@ MODELS_DIR.mkdir(parents=True, exist_ok=True)
 PLOTS_DIR.mkdir(parents=True, exist_ok=True)
 
 
-def ssim_loss(pred: torch.Tensor, target: torch.Tensor,
-              window_size: int = 11, C1: float = 0.01**2, C2: float = 0.03**2) -> torch.Tensor:
-
-    channel = pred.shape[1]
-    # Gaussian kernel
-    coords  = torch.arange(window_size, dtype=pred.dtype, device=pred.device)
-    coords -= window_size // 2
-    g       = torch.exp(-(coords ** 2) / (2 * 1.5 ** 2))
-    g       = g / g.sum()
-    kernel  = g.outer(g).unsqueeze(0).unsqueeze(0).expand(channel, 1, -1, -1)
-
-    pad = window_size // 2
-
-    mu1    = F.conv2d(pred,   kernel, padding=pad, groups=channel)
-    mu2    = F.conv2d(target, kernel, padding=pad, groups=channel)
-    mu1_sq = mu1 * mu1
-    mu2_sq = mu2 * mu2
-    mu1_mu2 = mu1 * mu2
-
-    sigma1_sq = F.conv2d(pred   * pred,   kernel, padding=pad, groups=channel) - mu1_sq
-    sigma2_sq = F.conv2d(target * target, kernel, padding=pad, groups=channel) - mu2_sq
-    sigma12   = F.conv2d(pred   * target, kernel, padding=pad, groups=channel) - mu1_mu2
-    ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / \
-               ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
-    return 1.0 - ssim_map.mean()
-
-
 class CombinedLoss(nn.Module):
-    def __init__(self, mse_weight: float = 0.5, ssim_weight: float = 0.5):
+    def __init__(self, mse_weight: float = 0.5, ssim_weight: float = 0.5, data_range: float = 1.0):
         super().__init__()
         self.mse_weight  = mse_weight
         self.ssim_weight = ssim_weight
         self.mse         = nn.MSELoss()
+        self.ssim        = StructuralSimilarityIndexMeasure(data_range=data_range)
 
     def forward(self, pred: torch.Tensor, target: torch.Tensor) -> torch.Tensor:
-        return self.mse_weight * self.mse(pred, target) + \
-               self.ssim_weight * ssim_loss(pred, target)
+        mse_loss = self.mse(pred, target)
+        ssim_loss = 1.0 - self.ssim(pred, target)
+        return self.mse_weight * mse_loss + self.ssim_weight * ssim_loss
+
 
 def plot_history(history, save_path="outputs/plots/ae_loss_curve.png"):
     plt.figure(figsize=(8, 5))
@@ -104,10 +79,10 @@ def show_reconstructions(model, dataloader, device, class_names,
             print("No suitable images found.")
             return
 
-        images       = torch.stack(selected_images).to(device)
+        images = torch.stack(selected_images).to(device)
         reconstructed = model(images)
 
-    images        = images.cpu()
+    images = images.cpu()
     reconstructed = reconstructed.cpu()
 
     plt.figure(figsize=(12, 4))
@@ -126,45 +101,68 @@ def show_reconstructions(model, dataloader, device, class_names,
     plt.savefig(save_path, dpi=300)
     plt.show()
 
+
 def train_one_epoch(model, dataloader, criterion, optimizer, device):
     model.train()
     running_loss = 0.0
     loop = tqdm(dataloader, desc="Training", leave=False)
+
     for images, _ in loop:
         images = images.to(device, non_blocking=True)
         optimizer.zero_grad()
+        # Forward pass: reconstruct images
         outputs = model(images)
-        loss    = criterion(outputs, images)
+
+        # Compute reconstruction loss
+        loss = criterion(outputs, images)
+
+        # Backpropagation
         loss.backward()
+
+        # Update model weights
         optimizer.step()
+
+        # Accumulate batch loss
         running_loss += loss.item() * images.size(0)
+
         loop.set_postfix(loss=f"{loss.item():.5f}")
+
     return running_loss / len(dataloader.dataset)
 
 
 def validate_one_epoch(model, dataloader, criterion, device):
     model.eval()
     running_loss = 0.0
+
     with torch.no_grad():
         loop = tqdm(dataloader, desc="Validation", leave=False)
         for images, _ in loop:
-            images  = images.to(device, non_blocking=True)
+            images = images.to(device, non_blocking=True)
+            # Forward pass
             outputs = model(images)
-            loss    = criterion(outputs, images)
+
+            # Compute validation loss
+            loss = criterion(outputs, images)
+
+            # Accumulate total loss
             running_loss += loss.item() * images.size(0)
+
             loop.set_postfix(loss=f"{loss.item():.5f}")
+
     return running_loss / len(dataloader.dataset)
 
 
 def evaluate(model, dataloader, criterion, device):
     model.eval()
     running_loss = 0.0
+
     with torch.no_grad():
         for images, _ in dataloader:
-            images  = images.to(device, non_blocking=True)
+            images = images.to(device, non_blocking=True)
             outputs = model(images)
-            loss    = criterion(outputs, images)
+            loss = criterion(outputs, images)
             running_loss += loss.item() * images.size(0)
+
     return running_loss / len(dataloader.dataset)
 
 
@@ -181,22 +179,27 @@ if __name__ == "__main__":
     encoder, decoder, autoencoder = build_autoencoder(latent_dim=LATENT_DIM)
     autoencoder = autoencoder.to(device)
 
-    criterion = CombinedLoss(mse_weight=MSE_WEIGHT, ssim_weight=SSIM_WEIGHT)
+    criterion = CombinedLoss(
+        mse_weight=MSE_WEIGHT,
+        ssim_weight=SSIM_WEIGHT,
+        data_range=1.0
+    ).to(device)
+
     optimizer = torch.optim.Adam(autoencoder.parameters(), lr=LEARNING_RATE)
     scheduler = torch.optim.lr_scheduler.ReduceLROnPlateau(
         optimizer, mode="min", factor=0.5, patience=3, min_lr=1e-6
     )
 
     history = {"train_loss": [], "val_loss": []}
-    best_val_loss        = float("inf")
-    best_model_weights   = copy.deepcopy(autoencoder.state_dict())
-    early_stop_patience  = 7
-    epochs_no_improve    = 0
+    best_val_loss = float("inf")
+    best_model_weights = copy.deepcopy(autoencoder.state_dict())
+    early_stop_patience = 7
+    epochs_no_improve = 0
 
     for epoch in range(EPOCHS):
         print(f"\nEpoch [{epoch + 1}/{EPOCHS}]")
         train_loss = train_one_epoch(autoencoder, train_loader, criterion, optimizer, device)
-        val_loss   = validate_one_epoch(autoencoder, val_loader, criterion, device)
+        val_loss = validate_one_epoch(autoencoder, val_loader, criterion, device)
         scheduler.step(val_loss)
 
         history["train_loss"].append(train_loss)
@@ -208,10 +211,10 @@ if __name__ == "__main__":
         print(f"LR         : {current_lr:.2e}")
 
         if val_loss < best_val_loss:
-            best_val_loss      = val_loss
+            best_val_loss = val_loss
             best_model_weights = copy.deepcopy(autoencoder.state_dict())
             torch.save(autoencoder.state_dict(), MODELS_DIR / "best_autoencoder.pth")
-            epochs_no_improve  = 0
+            epochs_no_improve = 0
             print("✓ Best model saved.")
         else:
             epochs_no_improve += 1
@@ -221,7 +224,7 @@ if __name__ == "__main__":
                 break
 
     autoencoder.load_state_dict(best_model_weights)
-    torch.save(autoencoder.state_dict(),         MODELS_DIR / "final_autoencoder1.pth")
+    torch.save(autoencoder.state_dict(), MODELS_DIR / "final_autoencoder1.pth")
     torch.save(autoencoder.encoder.state_dict(), MODELS_DIR / "encoder_only1.pth")
     torch.save(autoencoder.decoder.state_dict(), MODELS_DIR / "decoder_only1.pth")
 

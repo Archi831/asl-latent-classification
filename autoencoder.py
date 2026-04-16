@@ -2,12 +2,13 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
+# Basic building block with two convolutional layers, batch norm, and ReLU
 class ConvBlock(nn.Module):
     def __init__(self, in_channels, out_channels):
         super().__init__()
         self.block = nn.Sequential(
-            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False),
-            nn.BatchNorm2d(out_channels),
+            nn.Conv2d(in_channels, out_channels, kernel_size=3, padding=1, bias=False), # look for important visual patterns
+            nn.BatchNorm2d(out_channels), # organize the detected signals so they are easier to learn from
             nn.ReLU(inplace=True),
             nn.Conv2d(out_channels, out_channels, kernel_size=3, padding=1, bias=False),
             nn.BatchNorm2d(out_channels),
@@ -20,7 +21,7 @@ class ConvBlock(nn.Module):
 class UpBlock(nn.Module):
     def __init__(self, in_channels, skip_channels, out_channels):
         super().__init__()
-        self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False)
+        self.up = nn.Upsample(scale_factor=2, mode="bilinear", align_corners=False) # makes the feature map larger
         self.conv = ConvBlock(in_channels + skip_channels, out_channels)
 
     def forward(self, x, skip=None):
@@ -35,7 +36,7 @@ class Encoder(nn.Module):
         super().__init__()
 
         self.block1 = ConvBlock(1,   32)   # → (B, 32,  64, 64)
-        self.pool1  = nn.MaxPool2d(2)      # → (B, 32,  32, 32)
+        self.pool1  = nn.MaxPool2d(2)      # → (B, 32,  32, 32) # makes the image representation smaller
 
         self.block2 = ConvBlock(32,  64)   # → (B, 64,  32, 32)
         self.pool2  = nn.MaxPool2d(2)      # → (B, 64,  16, 16)
@@ -46,9 +47,9 @@ class Encoder(nn.Module):
         self.block4 = ConvBlock(128, 256)  # → (B, 256,  8,  8)
         self.pool4  = nn.MaxPool2d(2)      # → (B, 256,  4,  4)
 
-        self.flatten = nn.Flatten()
-        self.fc1 = nn.Linear(4 * 4 * 256, 512)
-        self.drop = nn.Dropout(0.3)
+        self.flatten = nn.Flatten() # converts the 3D feature map into one long vector for each image
+        self.fc1 = nn.Linear(4 * 4 * 256, 512) # compresses the extracted features into a smaller representation
+        self.drop = nn.Dropout(0.3) # randomly turns off 30% of neurons during training
         self.fc2 = nn.Linear(512, latent_dim)
 
     def forward(self, x):

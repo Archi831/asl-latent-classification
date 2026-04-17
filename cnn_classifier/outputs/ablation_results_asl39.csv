@@ -1,0 +1,2 @@
+timestamp,run_name,head,optimizer,scheduler,lr,weight_decay,momentum,dropout,label_smoothing,batch_size,augment,num_workers,epochs_trained,best_epoch,best_val_loss,best_val_acc,final_lr,best_model_path
+2026-04-17T13:02:11,asl39_ab1_baseline,standard,adam,plateau,0.001,0.0,0.9,0.5,0.0,128,False,0,26,19,0.002134090227085104,0.9994029850746269,0.000125,D:\Code\NS\ASL\asl-latent-classification\cnn_classifier\models\best_cnn_classifier_asl39_ab1_baseline.pth

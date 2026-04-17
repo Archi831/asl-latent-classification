@@ -10,7 +10,7 @@ DATA_DIR   = r"D:\ns\asl_alphabet_train"
 IMG_SIZE   = (64, 64)
 BATCH_SIZE = 128
 SEED       = 67
-LATENT_DIM = 128
+LATENT_DIM = 64
 
 MODELS_DIR  = Path("models")
 LATENTS_DIR = Path("latents")

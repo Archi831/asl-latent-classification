@@ -13,14 +13,14 @@ DATA_DIR      = r"D:\ns\asl_alphabet_train"
 IMG_SIZE      = (64, 64)
 BATCH_SIZE    = 128
 SEED          = 67
-LATENT_DIM    = 128
+LATENT_DIM    = 64
 NUM_CLASSES   = 29
 EPOCHS        = 50
 LEARNING_RATE = 1e-3
 
 # Reconstruction loss weights (MSE + SSIM)
-SSIM_WEIGHT = 1.0
-MSE_WEIGHT  = 0.0
+SSIM_WEIGHT = 0.5
+MSE_WEIGHT  = 0.5
 
 # How much to weight the classification loss vs the reconstruction loss.
 # 0.4 means: total = 0.6 * recon_loss + 0.4 * cls_loss

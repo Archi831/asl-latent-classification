@@ -19,8 +19,8 @@ EPOCHS        = 50
 LEARNING_RATE = 1e-3
 
 # Reconstruction loss weights (MSE + SSIM)
-SSIM_WEIGHT = 0.0
-MSE_WEIGHT  = 1.0
+SSIM_WEIGHT = 1.0
+MSE_WEIGHT  = 0.0
 
 # How much to weight the classification loss vs the reconstruction loss.
 # 0.4 means: total = 0.6 * recon_loss + 0.4 * cls_loss

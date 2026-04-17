@@ -16,7 +16,7 @@ SEED          = 67
 LATENT_DIM    = 128
 NUM_CLASSES   = 29
 EPOCHS        = 50
-LEARNING_RATE = 5e-4
+LEARNING_RATE = 1e-3
 
 # Reconstruction loss weights (MSE + SSIM)
 SSIM_WEIGHT = 0.5

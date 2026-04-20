@@ -6,7 +6,7 @@ import torch
 from data_prep import load_preprocessed_datasets
 from autoencoder import build_autoencoder
 
-DATA_DIR   = r"D:\ns\asl_alphabet_train"
+DATA_DIR   = r"D:/ns/archive/asl-numbers-alphabet-dataset"
 IMG_SIZE   = (64,64)
 BATCH_SIZE = 128
 SEED       = 67

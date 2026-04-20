@@ -148,7 +148,7 @@ def build_autoencoder(latent_dim: int = 128, num_classes: int = 39):
 if __name__ == "__main__":
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    encoder, decoder, autoencoder = build_autoencoder(latent_dim=128, num_classes=29)
+    encoder, decoder, autoencoder = build_autoencoder(latent_dim=128, num_classes=39)
     autoencoder = autoencoder.to(device)
 
     x = torch.randn(8, 1, 64, 64).to(device)

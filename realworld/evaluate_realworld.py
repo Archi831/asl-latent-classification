@@ -29,11 +29,11 @@ from PIL import Image
 HERE = Path(__file__).parent
 MODELS_DIR = HERE / "models"
 
-CNN_PATH     = MODELS_DIR / "best_cnn_asl39.pth"
-ENCODER_PATH = MODELS_DIR / "encoder_ae_asl39_ld256.pth"
-MLP_PATH     = MODELS_DIR / "mlp_classifier.pkl"
+CNN_PATH  = MODELS_DIR / "best_cnn_asl39.pth"
+AE_PATH   = MODELS_DIR / "final_autoencoder.pth"
+MLP_PATH  = MODELS_DIR / "asl_mlp_model.pth"
 
-LATENT_DIM = 256
+LATENT_DIM = 128
 NUM_CLASSES = 39
 
 CLASS_NAMES = [
@@ -73,14 +73,32 @@ def load_cnn(device: torch.device) -> torch.nn.Module:
 def load_encoder(device: torch.device) -> torch.nn.Module:
     from autoencoder_arch import Encoder
     enc = Encoder(latent_dim=LATENT_DIM).to(device)
-    enc.load_state_dict(torch.load(ENCODER_PATH, map_location=device, weights_only=True))
+    full_sd = torch.load(AE_PATH, map_location=device, weights_only=True)
+    enc_sd = {k[len("encoder."):]: v for k, v in full_sd.items() if k.startswith("encoder.")}
+    enc.load_state_dict(enc_sd)
     enc.eval()
     return enc
 
 
-def load_mlp():
-    import joblib
-    return joblib.load(MLP_PATH)
+class MLP(torch.nn.Module):
+    def __init__(self, input_size: int = LATENT_DIM, num_classes: int = NUM_CLASSES):
+        super().__init__()
+        self.network = torch.nn.Sequential(
+            torch.nn.Linear(input_size, 256), torch.nn.ReLU(),
+            torch.nn.Linear(256, 128),        torch.nn.ReLU(),
+            torch.nn.Linear(128, 64),         torch.nn.ReLU(),
+            torch.nn.Linear(64, num_classes),
+        )
+
+    def forward(self, x):
+        return self.network(x)
+
+
+def load_mlp(device: torch.device) -> torch.nn.Module:
+    mlp = MLP().to(device)
+    mlp.load_state_dict(torch.load(MLP_PATH, map_location=device, weights_only=True))
+    mlp.eval()
+    return mlp
 
 
 # ---------------------------------------------------------------------------
@@ -93,17 +111,13 @@ def predict_cnn(model, tensor: torch.Tensor, device: torch.device) -> int:
 
 
 @torch.no_grad()
-def encode(encoder, tensor: torch.Tensor, device: torch.device) -> np.ndarray:
-    z = encoder(tensor.unsqueeze(0).to(device))
-    return z.cpu().numpy()
+def encode(encoder, tensor: torch.Tensor, device: torch.device) -> torch.Tensor:
+    return encoder(tensor.unsqueeze(0).to(device))
 
 
-def predict_mlp(mlp, z: np.ndarray) -> int:
-    label = mlp.predict(z)[0]
-    # labels may be string class names or integer indices
-    if isinstance(label, (int, np.integer)):
-        return int(label)
-    return CLASS_TO_IDX.get(str(label), -1)
+@torch.no_grad()
+def predict_mlp(mlp, z: torch.Tensor) -> int:
+    return int(mlp(z).argmax(dim=1).item())
 
 
 # ---------------------------------------------------------------------------
@@ -248,14 +262,14 @@ def main():
     encoder = None
     mlp = None
     if not args.no_mlp:
-        if not MLP_PATH.exists():
-            print(f"[warn] MLP not found at {MLP_PATH} — running CNN only.")
-            print("       Ask your teammate to add joblib.dump(model, 'mlp_classifier.pkl') to mlp_asl.py.")
+        if not MLP_PATH.exists() or not AE_PATH.exists():
+            missing = [p for p in (MLP_PATH, AE_PATH) if not p.exists()]
+            print(f"[warn] Missing model files: {missing} — running CNN only.")
         else:
             print("Loading AE encoder...")
             encoder = load_encoder(device)
             print("Loading MLP...")
-            mlp = load_mlp()
+            mlp = load_mlp(device)
 
     print(f"Scanning dataset: {dataset_root}")
     samples = collect_samples(dataset_root)

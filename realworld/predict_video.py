@@ -24,11 +24,11 @@ from PIL import Image
 HERE = Path(__file__).parent
 MODELS_DIR = HERE / "models"
 
-CNN_PATH     = MODELS_DIR / "best_cnn_asl39.pth"
-ENCODER_PATH = MODELS_DIR / "encoder_ae_asl39_ld256.pth"
-MLP_PATH     = MODELS_DIR / "mlp_classifier.pkl"
+CNN_PATH = MODELS_DIR / "best_cnn_asl39.pth"
+AE_PATH  = MODELS_DIR / "final_autoencoder.pth"
+MLP_PATH = MODELS_DIR / "asl_mlp_model.pth"
 
-LATENT_DIM  = 256
+LATENT_DIM  = 128
 NUM_CLASSES = 39
 ROI_SIZE    = 200   # pixels, square ROI in frame centre
 
@@ -61,14 +61,32 @@ def load_cnn(device):
 def load_encoder(device):
     from autoencoder_arch import Encoder
     enc = Encoder(latent_dim=LATENT_DIM).to(device)
-    enc.load_state_dict(torch.load(ENCODER_PATH, map_location=device, weights_only=True))
+    full_sd = torch.load(AE_PATH, map_location=device, weights_only=True)
+    enc_sd = {k[len("encoder."):]: v for k, v in full_sd.items() if k.startswith("encoder.")}
+    enc.load_state_dict(enc_sd)
     enc.eval()
     return enc
 
 
-def load_mlp():
-    import joblib
-    return joblib.load(MLP_PATH)
+class MLP(torch.nn.Module):
+    def __init__(self):
+        super().__init__()
+        self.network = torch.nn.Sequential(
+            torch.nn.Linear(LATENT_DIM, 256), torch.nn.ReLU(),
+            torch.nn.Linear(256, 128),        torch.nn.ReLU(),
+            torch.nn.Linear(128, 64),         torch.nn.ReLU(),
+            torch.nn.Linear(64, NUM_CLASSES),
+        )
+
+    def forward(self, x):
+        return self.network(x)
+
+
+def load_mlp(device):
+    mlp = MLP().to(device)
+    mlp.load_state_dict(torch.load(MLP_PATH, map_location=device, weights_only=True))
+    mlp.eval()
+    return mlp
 
 
 # ---------------------------------------------------------------------------
@@ -90,16 +108,11 @@ def predict_cnn(model, tensor, device):
 
 @torch.no_grad()
 def predict_ae_mlp(encoder, mlp, tensor, device):
-    z = encoder(tensor.unsqueeze(0).to(device)).cpu().numpy()
-    label = mlp.predict(z)[0]
-    if isinstance(label, (int, np.integer)):
-        name = CLASS_NAMES[int(label)]
-    else:
-        name = str(label)
-    proba = mlp.predict_proba(z)[0]
-    idx   = CLASS_TO_IDX.get(name, 0)
-    conf  = float(proba[idx]) if idx < len(proba) else 0.0
-    return name, conf
+    z      = encoder(tensor.unsqueeze(0).to(device))
+    logits = mlp(z)
+    probs  = torch.softmax(logits, dim=1)[0]
+    idx    = int(probs.argmax().item())
+    return CLASS_NAMES[idx], probs[idx].item()
 
 
 # ---------------------------------------------------------------------------
@@ -149,13 +162,13 @@ def run(args):
     mlp     = None
     use_mlp = args.pipeline in ("ae_mlp", "both")
     if use_mlp:
-        if not MLP_PATH.exists():
-            print(f"[warn] MLP not found at {MLP_PATH}, falling back to CNN only.")
+        if not MLP_PATH.exists() or not AE_PATH.exists():
+            print("[warn] AE or MLP model file missing, falling back to CNN only.")
             use_mlp = False
         else:
             print("Loading AE encoder + MLP...")
             encoder = load_encoder(device)
-            mlp     = load_mlp()
+            mlp     = load_mlp(device)
 
     source = 0 if args.video == "0" else args.video
     cap = cv2.VideoCapture(source)

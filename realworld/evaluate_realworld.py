@@ -125,6 +125,28 @@ def predict_mlp(mlp, z: torch.Tensor) -> int:
 # ---------------------------------------------------------------------------
 IMG_EXTS = {".jpg", ".jpeg", ".png", ".bmp", ".webp"}
 
+# Sign Language MNIST: integer label 0-25 maps to A-Z (J=9 and Z=25 absent)
+MNIST_LABEL_TO_CLASS = {i: CLASS_TO_IDX[chr(ord('A') + i)] for i in range(26) if chr(ord('A') + i) in CLASS_TO_IDX}
+
+
+def collect_samples_mnist(csv_path: Path):
+    """Load (tensor, class_idx) pairs from a Sign Language MNIST CSV file."""
+    import pandas as pd
+    df = pd.read_csv(csv_path)
+    pixels = df.iloc[:, 1:].values.astype("float32") / 255.0   # (N, 784)
+    labels = df["label"].values
+
+    resize = transforms.Resize((64, 64))
+    samples = []
+    for i in range(len(df)):
+        img = torch.from_numpy(pixels[i].reshape(1, 28, 28))    # (1, 28, 28)
+        img = resize(img)                                         # (1, 64, 64)
+        class_idx = MNIST_LABEL_TO_CLASS.get(int(labels[i]), -1)
+        if class_idx == -1:
+            continue
+        samples.append((img, class_idx))
+    return samples
+
 
 def collect_samples(dataset_root: Path):
     """Return list of (path, class_idx) for every image found under dataset_root/ClassName/."""
@@ -154,15 +176,18 @@ def evaluate(samples, cnn_model, encoder, mlp, device, batch_size=64):
     per_class_cnn  = {i: [0, 0] for i in range(NUM_CLASSES)}  # [correct, total]
     per_class_mlp  = {i: [0, 0] for i in range(NUM_CLASSES)} if mlp is not None else None
 
-    for i, (path, true_idx) in enumerate(samples):
+    for i, (item, true_idx) in enumerate(samples):
         if (i + 1) % 500 == 0 or i == 0:
             print(f"  {i+1}/{n} ...", end="\r")
 
-        try:
-            tensor = load_image(path)
-        except Exception as e:
-            print(f"\n  [warn] could not load {path}: {e}")
-            continue
+        if isinstance(item, torch.Tensor):
+            tensor = item
+        else:
+            try:
+                tensor = load_image(item)
+            except Exception as e:
+                print(f"\n  [warn] could not load {item}: {e}")
+                continue
 
         pred_cnn = predict_cnn(cnn_model, tensor, device)
         per_class_cnn[true_idx][1] += 1
@@ -244,14 +269,12 @@ def save_csv(cnn_correct, mlp_correct, per_class_cnn, per_class_mlp, n, output_p
 # ---------------------------------------------------------------------------
 def main():
     parser = argparse.ArgumentParser(description="Real-world ASL evaluation")
-    parser.add_argument("--dataset", required=True, help="Path to dataset root (class-name subfolders)")
+    group = parser.add_mutually_exclusive_group(required=True)
+    group.add_argument("--dataset",   help="Path to dataset root (class-name subfolders)")
+    group.add_argument("--mnist-csv", help="Path to Sign Language MNIST CSV file")
     parser.add_argument("--output",  default="realworld_results.csv", help="Output CSV path")
     parser.add_argument("--no-mlp",  action="store_true", help="Skip AE+MLP (CNN only)")
     args = parser.parse_args()
-
-    dataset_root = Path(args.dataset)
-    if not dataset_root.is_dir():
-        sys.exit(f"Dataset path not found: {dataset_root}")
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     print(f"Device: {device}")
@@ -271,10 +294,21 @@ def main():
             print("Loading MLP...")
             mlp = load_mlp(device)
 
-    print(f"Scanning dataset: {dataset_root}")
-    samples = collect_samples(dataset_root)
+    if args.mnist_csv:
+        csv_path = Path(args.mnist_csv)
+        if not csv_path.exists():
+            sys.exit(f"CSV not found: {csv_path}")
+        print(f"Loading Sign Language MNIST: {csv_path}")
+        samples = collect_samples_mnist(csv_path)
+    else:
+        dataset_root = Path(args.dataset)
+        if not dataset_root.is_dir():
+            sys.exit(f"Dataset path not found: {dataset_root}")
+        print(f"Scanning dataset: {dataset_root}")
+        samples = collect_samples(dataset_root)
+
     if not samples:
-        sys.exit("No images found. Check dataset path and folder structure (dataset/ClassName/img.jpg).")
+        sys.exit("No samples found.")
     print(f"Found {len(samples)} images across {len({s[1] for s in samples})} classes.\n")
 
     cnn_correct, mlp_correct, per_class_cnn, per_class_mlp, n = evaluate(

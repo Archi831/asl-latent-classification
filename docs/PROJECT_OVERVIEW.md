@@ -1,5 +1,7 @@
 # ASL Latent Classification — Project Overview
 
+**Branch:** `realworld-eval` | **Last updated:** 2026-04-25
+
 ## What Is This Project?
 
 This project investigates two different approaches to classifying American Sign Language (ASL) hand signs from images, and compares how well each one performs — especially under difficult conditions.
@@ -8,7 +10,7 @@ The central question is:
 
 > **Does learning a compact internal representation of images (via an autoencoder) produce a better or more robust classifier than a CNN that classifies images directly?**
 
-There are 29 ASL signs to recognize: letters A–Z plus Space, Delete, and Nothing. The dataset contains ~87,000 images (3,000 per class), all resized to 64×64 grayscale.
+There are **39 ASL signs** to recognize: letters A–Z plus digits 0–9. The dataset contains ~117,000 images (3,000 per class), all resized to 64×64 grayscale.
 
 ---
 
@@ -83,26 +85,37 @@ Input (1, 64, 64)
   → ConvBlock (128 filters) + MaxPool  → (128, 8, 8)
   → ConvBlock (256 filters) + MaxPool  → (256, 4, 4)
   → Flatten → FC(4096→512) → Dropout(0.3) → FC(512→128)
-  → z  (128-dim latent vector)
+  → z  (N-dim latent vector, N ∈ {64, 128, 256})
 ```
 
 The decoder mirrors this in reverse, using bilinear upsampling and **skip connections** (U-Net style). Skip connections pass feature maps from the encoder directly to the matching decoder stage, which helps the decoder recover fine spatial details that would otherwise be lost in the bottleneck.
 
 ### Training
 
-- **Loss function:** Combined MSE + SSIM (50% each)
-  - **MSE** (Mean Squared Error) penalizes pixel-level differences
-  - **SSIM** (Structural Similarity Index) additionally penalizes differences in local contrast, luminance, and structure — it aligns better with how humans perceive image quality
+- **Loss function:** `0.6 × (0.5·MSE + 0.5·SSIM) + 0.4 × CrossEntropy` (reconstruction + auxiliary classification on latent z)
+  - **MSE** penalizes pixel-level differences
+  - **SSIM** penalizes structural/contrast differences — closer to perceptual quality
+  - **CrossEntropy** on latent head encourages the latent space to be class-discriminative
 - **Optimizer:** Adam, lr = 1e-3
 - **LR Scheduler:** ReduceLROnPlateau (halves LR after 3 epochs without improvement)
 - **Early stopping:** patience = 7 epochs
 - **Epochs:** up to 50
 
+### Latent-Dim Ablation Results (completed)
+
+| Run | latent_dim | best_epoch | best_val_loss |
+|---|---|---|---|
+| ae_asl39_ld64  | 64  | 50 | 0.3034 |
+| ae_asl39_ld128 | 128 | 50 | 0.3037 |
+| ae_asl39_ld256 | 256 | **46** | **0.3029** |
+
+**Best:** `ae_asl39_ld256` — use this encoder for latent export.
+
 ### What good results look like
 
 - Reconstructed images should be recognizable as the same ASL sign as the originals
 - Train and validation loss curves should converge without diverging (no overfitting)
-- t-SNE of latent vectors should show 29 visually separable clusters
+- t-SNE of latent vectors should show 39 visually separable clusters
 
 ---
 
@@ -110,9 +123,9 @@ The decoder mirrors this in reverse, using bilinear upsampling and **skip connec
 
 ### What it is
 
-Once the autoencoder is trained, the encoder is frozen and used to convert every image in the dataset into its 128-dim latent vector. These vectors are saved as `.npy` files. A **Multi-Layer Perceptron (MLP)** — a simple stack of fully-connected layers — is then trained to classify the sign from the vector alone.
+Once the autoencoder is trained, the encoder is frozen and used to convert every image in the dataset into its latent vector (64, 128, or 256 dim depending on the run). These vectors are saved as `.npy` files. A **Multi-Layer Perceptron (MLP)** — a simple stack of fully-connected layers — is then trained to classify the sign from the vector alone.
 
-The MLP never sees pixel data. It only sees the 128 abstract numbers that the encoder produced.
+The MLP never sees pixel data. It only sees the abstract numbers that the encoder produced.
 
 ### Why this matters
 
@@ -120,9 +133,9 @@ If the autoencoder has learned a truly meaningful latent space, the MLP should b
 
 ### What good results look like
 
-- Accuracy of 90%+ on the test set is a reasonable target given 29 classes
-- Confusion matrix should show most confusion between visually similar signs (e.g., M/N, A/S, U/V/W)
-- Signs like "Nothing" and "Space" may be inherently harder to distinguish
+- Accuracy of 90%+ on the test set is a reasonable target given 39 classes
+- Confusion matrix should show most confusion between visually similar signs (e.g., M/N, A/S, U/V/W, 0/O)
+- Digit signs (0–9) may be harder given less visual diversity vs. letters
 
 ---
 
@@ -141,11 +154,34 @@ Input (1, 64, 64)
   → ConvBlock (128) + MaxPool → (128, 8, 8)
   → ConvBlock (256) + MaxPool → (256, 4, 4)
   → AdaptiveAvgPool → Flatten → (256)
-  → FC(256→256) + ReLU + Dropout(0.5) → FC(256→29)
-  → logits (29 classes)
+  → [head] → logits (39 classes)
 ```
 
+Three **head variants** are ablated:
+
+| head | Architecture |
+|---|---|
+| `shallow` | `Linear(256, 39)` |
+| `standard` | `Linear(256, 256) → ReLU → Dropout → Linear(256, 39)` |
+| `deep` | `Linear(256, 512) → BN1d → ReLU → Dropout → Linear(512, 256) → ReLU → Dropout → Linear(256, 39)` |
+
 The architecture mirrors the encoder intentionally, making the comparison fair — both models have similar capacity and see the same input.
+
+### CNN Ablation Results (complete)
+
+| # | Run name | head | optimizer | aug | ls | scheduler | val_acc | best_epoch |
+|---|---|---|---|---|---|---|---|---|
+| ab1 | asl39_ab1_baseline     | standard | adam  | No  | 0.00 | plateau | 99.94% | 19/26 |
+| ab2 | asl39_ab2_adamw        | standard | adamw | No  | 0.00 | plateau | 99.90% | 27/34 |
+| ab3 | asl39_ab3_aug          | standard | adamw | Yes | 0.00 | plateau | 99.95% | 34/41 |
+| ab4 | asl39_ab4_aug_ls       | standard | adamw | Yes | 0.05 | plateau | **99.97%** | 50/50 |
+| ab5 | asl39_ab5_cosine       | standard | adamw | Yes | 0.05 | cosine  | **99.97%** | 45/50 |
+| ab6 | asl39_ab6_head_shallow | shallow  | adamw | Yes | 0.05 | plateau | 99.95% | 50/50 |
+| ab7 | asl39_ab7_head_deep    | deep     | adamw | Yes | 0.05 | plateau | trained | — |
+
+All three head variants (ab5/ab6/ab7) are used in real-world evaluation. **Best in-distribution model:** `asl39_ab5_cosine` (99.97% val acc). **Best cross-domain model:** `ab6` (shallow head, consistently best on external datasets).
+
+Results logged to `cnn_classifier/outputs/ablation_results_asl39.csv`.
 
 ### Role in the project
 
@@ -160,6 +196,53 @@ This is the **baseline**. It answers: "How well does a standard approach do?" Th
 ---
 
 ## Part 4 — t-SNE Visualization & Robustness Testing (Maksym)
+
+---
+
+## Part 5 — Real-World Generalization (Archie)
+
+### What it is
+
+A suite of experiments evaluating how well the trained models transfer to external ASL datasets with different signers, backgrounds, and lighting — none of which appeared in ASL39 training.
+
+### Datasets used
+
+| Dataset | Classes | Images/class | Character |
+|---|---|---|---|
+| ayuraj/asl-dataset | A–Z + 0–9 (36) | ~70 | Controlled lighting, uniform background, hand-cropped |
+| danrasband/asl-alphabet-test | A–Z (26) | 30 | Real-world footage, single subject, natural background |
+
+debashishsau was investigated and excluded — it contains images from the ASL39 training corpus, ayuraj, and danrasband, and consists almost entirely of synthetic augmentations. See `docs/debashishsau_exclusion_note.md`. No multi-source fine-tuning experiments were conducted.
+
+### Results summary
+
+**Zero-shot (no adaptation):**
+
+| Model | Ayuraj | Danrasband |
+|---|---|---|
+| CNN ab5 (standard) | 27.5% | 14.7% |
+| CNN ab6 (shallow) | **28.1%** | **16.2%** |
+| CNN ab7 (deep) | 27.5% | 13.1% |
+| AE+MLP | 27.5% | 5.0% |
+
+Ayuraj digits score ~97–100% across all models; every letter class scores ~0%. The 27–28% headline is almost entirely explained by digit images. On danrasband (letters only), the CNN holds at 13–16%; the AE+MLP collapses to 5%.
+
+**Cross-dataset fine-tuning (CNN):**
+
+| Fine-tuned on | Tested on | Best accuracy (model) |
+|---|---|---|
+| danrasband | ayuraj | 40.3% (ab5) |
+| ayuraj | danrasband | **34.5%** (ab6) |
+
+Fine-tuning with as few as 30 images/class roughly doubles cross-domain accuracy. The shallow head (ab6) generalises best; the deep head (ab7) overfits the fine-tuning distribution. The AE+MLP pipeline reaches only 20.8% / 10.0% under the same conditions.
+
+### Key findings
+
+- Domain shift is severe for letters, mild for digits.
+- The CNN adapts better than the AE+MLP under limited fine-tuning data.
+- Shallower classifier heads generalise better cross-domain.
+
+See `docs/REALWORLD_EVAL_REPORT.md` for complete per-class breakdowns and methodology.
 
 ### t-SNE
 
@@ -189,14 +272,14 @@ This is one of the most practically relevant experiments: real-world ASL recogni
 
 ## Dataset
 
-- **Source:** [ASL Alphabet on Kaggle](https://www.kaggle.com/datasets/grassknoted/asl-alphabet) (grassknoted)
-- **Size:** ~87,000 images (3,000 per class)
-- **Classes:** 29 — A through Z, Space, Delete, Nothing
-- **Original resolution:** 200×200 RGB
+- **Source:** `data/asl-alphabet-numbers/asl-numbers-alphabet-dataset`
+- **Size:** ~117,000 images (3,000 per class)
+- **Classes:** 39 — A through Z, digits 0–9
+- **Source resolution:** 224×224
 - **Used resolution:** 64×64 grayscale (normalized to [0, 1])
-- **Split (seed=67):** 70% train / 10% val / 20% test (~60,900 / ~8,700 / ~17,400 images)
+- **Split (seed=67):** 70% train / 10% val / 20% test
 
-The fixed seed ensures all team members work with the exact same test set of 17,400 images, making results directly comparable.
+The fixed seed ensures all team members work with the exact same test set, making results directly comparable.
 
 ---
 
@@ -205,10 +288,10 @@ The fixed seed ensures all team members work with the exact same test set of 17,
 | Component | Target |
 |---|---|
 | Autoencoder reconstructions | Visually recognizable signs at convergence |
-| Autoencoder test loss (MSE+SSIM) | < 0.05 combined loss |
+| Autoencoder val loss (combined) | ~0.30 (achieved: ld256=0.3029) |
 | MLP accuracy on latent vectors | > 90% on test set |
-| CNN baseline accuracy | > 90% on test set |
-| t-SNE | 29 visually separable clusters |
+| CNN baseline accuracy | > 90% on test set (ab1 baseline: **99.94% val acc**) |
+| t-SNE | 39 visually separable clusters |
 | Robustness | Graceful degradation; identify which model is more brittle |
 
 The most interesting result is not which model wins in accuracy, but **why** — and whether the latent space representation confers any advantage in robustness or interpretability.
@@ -233,7 +316,19 @@ Direct CNN classification is a solved problem for clean, controlled datasets lik
 
 | Person | Component | Status |
 |---|---|---|
-| Lana | Autoencoder (encoder + decoder + training + latent export) | Done |
-| Archie | CNN classifier + project documentation | In progress |
-| Lilia | MLP on latent vectors + presentation | TODO |
-| Maksym | t-SNE visualization + robustness testing | TODO |
+| Lana | Autoencoder (encoder + decoder + training + latent export) | Done — AE ablation complete (best: ld256, val_loss=0.3029) |
+| Archie | CNN classifier + real-world evaluation + project documentation | Done |
+| Lilia | MLP on latent vectors + presentation | Done |
+| Maksym | t-SNE visualization + robustness testing | Done |
+
+## Current Status (2026-04-25)
+
+- [x] AE ablation complete — best: ld256, val_loss=0.3029
+- [x] CNN ablation ab1–ab7 complete — best in-distribution: ab5-cosine (99.97% val acc)
+- [x] AE+MLP pipeline trained and evaluated
+- [x] t-SNE visualization complete
+- [x] Robustness testing (noise, brightness, resolution) complete
+- [x] Zero-shot evaluation on ayuraj and danrasband — CNN (ab5/ab6/ab7) and AE+MLP
+- [x] Cross-dataset fine-tuning (danrasband↔ayuraj) — CNN (ab5/ab6/ab7) and AE+MLP
+- [x] debashishsau investigated and excluded (training-set contamination + synthetic image dominance)
+- [x] Real-world evaluation report complete (`docs/REALWORLD_EVAL_REPORT.md`)

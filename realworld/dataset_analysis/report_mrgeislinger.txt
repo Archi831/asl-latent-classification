@@ -1,0 +1,52 @@
+Dataset:          mrgeislinger
+Kaggle ID:        mrgeislinger/asl-rgb-depth-fingerspelling-spelling-it-out
+Total images:     131668
+Classes present:  5 / 39
+Missing classes:  ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'F', 'G', 'H', 'I', 'J', 'K', 'L', 'M', 'N', 'O', 'P', 'Q', 'R', 'S', 'T', 'U', 'V', 'W', 'X', 'Y', 'Z', 'nothing', 'space', 'unknown']
+Samples/class:    min=25118  max=27820  avg=26334
+Native resol.:    [(142, 123), (85, 159), (80, 129), (80, 126), (105, 119)]...
+Channel mode:     1 (grayscale)
+Pixel mean (gs):  0.6041  (train: 0.5550)
+Pixel std  (gs):  0.2394  (train: 0.2380)
+Domain distance:  |mean diff| = 0.0491
+
+Per-class sample counts:
+           0:     0    ** MISSING **
+           1:     0    ** MISSING **
+           2:     0    ** MISSING **
+           3:     0    ** MISSING **
+           4:     0    ** MISSING **
+           5:     0    ** MISSING **
+           6:     0    ** MISSING **
+           7:     0    ** MISSING **
+           8:     0    ** MISSING **
+           9:     0    ** MISSING **
+           A: 25118  ########################################
+           B: 27820  ########################################
+           C: 26810  ########################################
+           D: 26332  ########################################
+           E: 25588  ########################################
+           F:     0    ** MISSING **
+           G:     0    ** MISSING **
+           H:     0    ** MISSING **
+           I:     0    ** MISSING **
+           J:     0    ** MISSING **
+           K:     0    ** MISSING **
+           L:     0    ** MISSING **
+           M:     0    ** MISSING **
+           N:     0    ** MISSING **
+           O:     0    ** MISSING **
+           P:     0    ** MISSING **
+           Q:     0    ** MISSING **
+           R:     0    ** MISSING **
+           S:     0    ** MISSING **
+           T:     0    ** MISSING **
+           U:     0    ** MISSING **
+           V:     0    ** MISSING **
+           W:     0    ** MISSING **
+           X:     0    ** MISSING **
+           Y:     0    ** MISSING **
+           Z:     0    ** MISSING **
+     nothing:     0    ** MISSING **
+       space:     0    ** MISSING **
+     unknown:     0    ** MISSING **

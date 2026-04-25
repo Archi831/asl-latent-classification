@@ -1,0 +1,7 @@
+model_tag,head,dataset,n,accuracy_pct
+ab5,standard,ayuraj,2515,27.48
+ab5,standard,danrasband,780,14.74
+ab6,shallow,ayuraj,2515,28.07
+ab6,shallow,danrasband,780,16.15
+ab7,deep,ayuraj,2515,27.51
+ab7,deep,danrasband,780,13.08

@@ -1,0 +1,7 @@
+model_tag,head,experiment,accuracy_pct
+ab5,standard,danrasband_test_ayuraj,40.32
+ab5,standard,ayuraj_test_danrasband,31.41
+ab6,shallow,danrasband_test_ayuraj,39.60
+ab6,shallow,ayuraj_test_danrasband,34.49
+ab7,deep,danrasband_test_ayuraj,40.04
+ab7,deep,ayuraj_test_danrasband,27.95

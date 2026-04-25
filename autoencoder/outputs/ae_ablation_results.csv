@@ -1,0 +1,4 @@
+timestamp,run_name,latent_dim,epochs_trained,best_epoch,best_val_loss,final_lr,model_path
+2026-04-17T01:45:23,ae_asl39_ld64,64,50,50,0.30335579693020875,0.001,D:\Code\NS\ASL\asl-latent-classification\autoencoder\models\best_autoencoder_ae_asl39_ld64.pth
+2026-04-17T09:03:19,ae_asl39_ld128,128,50,50,0.3036593026842051,0.001,D:\Code\NS\ASL\asl-latent-classification\autoencoder\models\best_autoencoder_ae_asl39_ld128.pth
+2026-04-17T11:14:29,ae_asl39_ld256,256,50,46,0.30286571075667196,0.0005,D:\Code\NS\ASL\asl-latent-classification\autoencoder\models\best_autoencoder_ae_asl39_ld256.pth

@@ -34,15 +34,19 @@ Base model weights are used directly with no adaptation.
 
 ### CNN — all variants
 
-| Model | Head | Ayuraj (2515 imgs) | Danrasband (780 imgs) |
-|---|---|:---:|:---:|
-| ab5 | standard | 27.48% | 14.74% |
-| ab6 | shallow | **28.07%** | **16.15%** |
-| ab7 | deep | 27.51% | 13.08% |
+| Model | Head | Config | Ayuraj (2515 imgs) | Danrasband (780 imgs) |
+|---|---|---|:---:|:---:|
+| ab1 | standard | Adam, no aug, no LS | 28.71% | 4.87% |
+| ab2 | standard | AdamW, no aug, no LS | 27.63% | 3.33% |
+| ab3 | standard | AdamW, aug | 27.59% | **17.44%** |
+| ab4 | standard | AdamW, aug, LS, plateau | 27.67% | 16.03% |
+| ab5 | standard | AdamW, aug, LS, cosine | 27.48% | 14.74% |
+| ab6 | shallow | AdamW, aug, LS, plateau | **28.07%** | 16.15% |
+| ab7 | deep | AdamW, aug, LS, plateau | 27.51% | 13.08% |
 
-The ayuraj headline is misleading: nearly all correct predictions come from the 700 digit images (10 classes × 70), which score ~97–100% across all models. Every letter class scores ~0%. The 27–28% figure is essentially the digit-fraction of the dataset, not genuine letter recognition.
+The ayuraj headline is misleading: nearly all correct predictions come from the 700 digit images (10 classes × 70), which score ~97–100% across all models. Every letter class scores ~0%. The 27–28% figure is essentially the digit-fraction of the dataset, not genuine letter recognition. Ayuraj accuracy is nearly identical across all seven configurations (~1.2 pp spread).
 
-Danrasband (letters only) tells a clearer story: 13–16% with no adaptation, with only H (~50%) and P (~40–67%) showing any consistent signal. The shallow head (ab6) performs slightly best on both datasets in zero-shot, consistent with less head-level overfitting to the training distribution.
+Danrasband (letters only) tells a much more differentiated story. Configurations **without data augmentation** (ab1, ab2) score only 3–5%—comparable to the AE+MLP. Configurations **with augmentation** (ab3–ab7) achieve 13–17%, with ab3 reaching the highest overall (17.44%). This makes augmentation the dominant driver of zero-shot letter generalization, ahead of optimizer choice, label smoothing, or head architecture.
 
 ### AE+MLP — zero-shot
 

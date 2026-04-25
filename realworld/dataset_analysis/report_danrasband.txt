@@ -1,0 +1,52 @@
+Dataset:          danrasband
+Kaggle ID:        danrasband/asl-alphabet-test
+Total images:     780
+Classes present:  26 / 39
+Missing classes:  ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'nothing', 'space', 'unknown']
+Samples/class:    min=30  max=30  avg=30
+Native resol.:    [(200, 200), (150, 200)]
+Channel mode:     3 (RGB)
+Pixel mean (gs):  0.5423  (train: 0.5550)
+Pixel std  (gs):  0.0721  (train: 0.2380)
+Domain distance:  |mean diff| = 0.0127
+
+Per-class sample counts:
+           0:     0    ** MISSING **
+           1:     0    ** MISSING **
+           2:     0    ** MISSING **
+           3:     0    ** MISSING **
+           4:     0    ** MISSING **
+           5:     0    ** MISSING **
+           6:     0    ** MISSING **
+           7:     0    ** MISSING **
+           8:     0    ** MISSING **
+           9:     0    ** MISSING **
+           A:    30  ###
+           B:    30  ###
+           C:    30  ###
+           D:    30  ###
+           E:    30  ###
+           F:    30  ###
+           G:    30  ###
+           H:    30  ###
+           I:    30  ###
+           J:    30  ###
+           K:    30  ###
+           L:    30  ###
+           M:    30  ###
+           N:    30  ###
+           O:    30  ###
+           P:    30  ###
+           Q:    30  ###
+           R:    30  ###
+           S:    30  ###
+           T:    30  ###
+           U:    30  ###
+           V:    30  ###
+           W:    30  ###
+           X:    30  ###
+           Y:    30  ###
+           Z:    30  ###
+     nothing:     0    ** MISSING **
+       space:     0    ** MISSING **
+     unknown:     0    ** MISSING **

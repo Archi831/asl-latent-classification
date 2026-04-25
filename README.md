@@ -145,13 +145,13 @@ All runs trained on ASL39 (39 classes, up to 50 epochs, early-stop patience 7).
 
 **Robustness runs** (perturb image before encoding; 39-class ASL39 dataset):
 
-| Perturbation | Test acc |
-|---|---|
-| Brightness shift (factor 0.5) | **99.91%** |
-| Gaussian noise (σ = 0.25) | > 99% (all classes > 0.89 confidence) |
-| Resolution drop (16×16 → 64×64) | **99.67%** |
+| Perturbation | AE+MLP Test acc | CNN Test acc |
+|---|---|---|
+| Brightness shift (factor 0.5) | 98.66% | **99.98%** |
+| Gaussian noise (σ = 0.25) | 1.30% | 1.30% |
+| Resolution drop (16×16 → 64×64) | 22.29% | **29.02%** |
 
-The AE acts as a denoising layer — pixel-level degradation is absorbed in the encoding step, leaving the MLP largely unaffected.
+Both models collapse under heavy Gaussian noise (σ = 0.25). Under resolution degradation the CNN retains more accuracy (29.02% vs 22.29%); under brightness shift both remain high with the CNN marginally ahead.
 
 ### Real-world evaluation (zero-shot → cross-dataset fine-tuning)
 
@@ -241,7 +241,7 @@ python realworld/finetune_aemplp_crosseval.py --mode full
 
 ## Key Findings
 
-1. **In-distribution accuracy is near-perfect for both pipelines.** The CNN hits 99.97% val accuracy. The MLP on latent vectors achieves 100% on its ablation set and ≥99.67% under brightness/noise/resolution degradation — with a classifier head that has orders of magnitude fewer parameters than the CNN.
+1. **In-distribution accuracy is near-perfect for both pipelines.** The CNN hits 99.97% val accuracy; the AE+MLP reaches 99.95% on ASL39 and 100% on the 29-class ablation set — with a classifier head that has orders of magnitude fewer parameters than the CNN. Under synthetic perturbations, both models collapse under heavy Gaussian noise (1.30% each); the CNN outperforms the AE+MLP under resolution degradation (29.02% vs 22.29%).
 
 2. **Domain shift is severe for letters, mild for digits.** Digit representations transfer across datasets out of the box; letter representations are tightly coupled to the training visual style (background, crop, lighting).
 

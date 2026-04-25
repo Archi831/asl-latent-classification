@@ -171,16 +171,14 @@ All five runs reached 100% accuracy. This demonstrates that the latent space is 
 
 These runs test how gracefully the AE+MLP pipeline degrades when input images are **perturbed before encoding**. The same trained MLP classifier is used; only the input image quality changes.
 
-| Perturbation | Parameters | Test acc |
-|---|---|---|
-| Brightness shift | `ColorJitter(brightness=0.5)` | **99.91%** |
-| Gaussian noise | σ = 0.25 | high (all classes > 0.89 confidence) |
-| Resolution drop | 64×64 → 16×16 → 64×64 bilinear | **99.67%** |
-| Dataset2 (second distribution) | — | **99.90%** |
+| Perturbation | Parameters | AE+MLP Test acc | CNN Test acc |
+|---|---|---|---|
+| Brightness shift | `ColorJitter(brightness=0.5)` | 98.66% | **99.98%** |
+| Gaussian noise | σ = 0.25 | 1.30% | 1.30% |
+| Resolution drop | 64×64 → 16×16 → 64×64 bilinear | 22.29% | **29.02%** |
+| Dataset2 (second distribution) | — | **99.90%** | — |
 
-All robustness runs remained well above 99%. The autoencoder acts as a natural denoising layer: even aggressive pixel-level noise or heavy blurring is largely absorbed during encoding, and the downstream MLP sees a latent vector that is still close to the clean version. This is one of the key advantages of the two-stage pipeline over direct CNN classification.
-
-The noise run (σ = 0.25) did not produce a saved confusion matrix, but the confidence analysis plot shows that even the 10 hardest classes retain mean softmax confidence above 0.89 — indicating very few actual misclassifications.
+Both models collapse under heavy Gaussian noise (σ = 0.25) — neither model was exposed to noise during training, so no representation survives the corruption. Under resolution degradation, the CNN retains more accuracy (29.02% vs 22.29%). Both models remain high under brightness shift, with the CNN marginally ahead (99.98% vs 98.66%).
 
 ### What good results look like
 
